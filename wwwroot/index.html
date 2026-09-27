@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>视频通话</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background: #0d0d0d;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100dvh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── 加入界面 ── */
+    #joinScreen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 24px;
+    }
+    #joinScreen h1 { font-size: 22px; font-weight: 600; }
+    #joinScreen p  { color: #666; font-size: 13px; }
+
+    .join-row { display: flex; gap: 8px; width: 100%; max-width: 320px; }
+
+    #roomInput {
+      flex: 1; min-width: 0;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #fff;
+      padding: 12px 16px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #roomInput:focus { border-color: #4f9eff; }
+
+    #joinBtn {
+      background: #4f9eff;
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      padding: 12px 22px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #joinBtn:active { background: #3a8aef; }
+    #joinStatus { color: #666; font-size: 13px; }
+
+    /* ── 通话界面 ── */
+    #callScreen {
+      display: none;
+      flex: 1;
+      position: relative;
+      background: #000;
+    }
+
+    /* 主画面 */
+    #mainVideo {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #111;
+    }
+
+    /* 无人占位 */
+    #placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #444;
+      font-size: 13px;
+      pointer-events: none;
+      z-index: 1;
+    }
+    #placeholder .avatar {
+      width: 68px; height: 68px; border-radius: 50%;
+      background: #222;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px;
+    }
+
+    /* PiP 容器：右下角垂直排列 */
+    #pipContainer {
+      position: absolute;
+      bottom: 88px;
+      right: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .pip-item {
+      width: 100px;
+      height: 75px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.18);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+      background: #1a1a1a;
+      cursor: pointer;
+      display: block;
+      transition: transform .15s;
+      flex-shrink: 0;
+    }
+    .pip-item:active { transform: scale(0.94); }
+
+    @media (max-width: 400px) {
+      .pip-item { width: 80px; height: 60px; }
+      #pipContainer { bottom: 84px; right: 8px; }
+    }
+
+    /* ── 统计（左上） ── */
+    #statsBar {
+      position: absolute;
+      top: 12px; left: 12px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: calc(100% - 24px);
+      z-index: 20;
+    }
+    .stat-pill {
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: #bbb;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #4f9eff; }
+    .dot.green  { background: #4caf82; }
+    .dot.yellow { background: #f5a623; }
+
+    /* ── 控制栏 ── */
+    #controls {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: linear-gradient(transparent, rgba(0,0,0,0.75));
+      padding: 12px 0 max(16px, env(safe-area-inset-bottom));
+    }
+    #callStatus {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 10px;
+    }
+    .btn-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    .ctrl-btn {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      transition: transform .15s;
+      -webkit-user-select: none; user-select: none;
+    }
+    .ctrl-btn:active { transform: scale(0.92); }
+    .ctrl-btn.normal { background: rgba(255,255,255,0.15); backdrop-filter: blur(6px); color: #fff; }
+    .ctrl-btn.danger { background: #e53935; color: #fff; }
+    .ctrl-btn.off    { background: rgba(255,255,255,0.07); color: #555; }
+
+    @media (max-width: 360px) {
+      .ctrl-btn { width: 50px; height: 50px; font-size: 20px; }
+      .btn-row  { gap: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="joinScreen">
+    <h1>视频通话</h1>
+    <p>最多支持三人同时通话</p>
+    <div class="join-row">
+      <input id="roomInput" type="text" placeholder="房间号" value="room1" />
+      <button id="joinBtn">加入</button>
+    </div>
+    <div id="joinStatus">等待加入...</div>
+  </div>
+
+  <div id="callScreen">
+    <video id="mainVideo" autoplay playsinline></video>
+
+    <div id="placeholder">
+      <div class="avatar">👤</div>
+      <span id="placeholderText">等待对方加入...</span>
+    </div>
+
+    <!-- PiP：本地 + 其他远端小窗 -->
+    <div id="pipContainer">
+      <video id="localPip" class="pip-item" autoplay muted playsinline></video>
+    </div>
+
+    <div id="statsBar">
+      <div class="stat-pill"><span class="dot green"></span><span id="fpsVal">-- fps</span></div>
+      <div class="stat-pill"><span class="dot"></span><span id="bitrateVal">-- kbps</span></div>
+      <div class="stat-pill"><span class="dot yellow"></span><span id="ipVal">--</span></div>
+    </div>
+
+    <div id="controls">
+      <div id="callStatus">等待连接...</div>
+      <div class="btn-row">
+        <button class="ctrl-btn normal" id="muteBtn">🎤</button>
+        <button class="ctrl-btn normal" id="flipBtn">🔄</button>
+        <button class="ctrl-btn normal" id="cameraBtn">📷</button>
+        <button class="ctrl-btn danger"  id="hangupBtn">📵</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/signalr.min.js"></script>
+  <script>
+    // ── 状态 ──
+    let connection, localStream, currentRoom;
+    let audioMuted = false, videoOff = false;
+    let facingMode = 'user';
+    let statsTimer = null, lastBytes = 0, lastStatsTime = 0;
+    let mainPeerId = null; // 当前主画面显示的 peerId（null = 无人）
+
+    // peerId -> { pc, pendingCandidates, remoteDescSet, isInitiator, stream }
+    const peers = new Map();
+
+    // ── 事件绑定 ──
+    document.getElementById('joinBtn').addEventListener('click', joinRoom);
+    document.getElementById('muteBtn').addEventListener('click', toggleMute);
+    document.getElementById('flipBtn').addEventListener('click', flipCamera);
+    document.getElementById('cameraBtn').addEventListener('click', toggleCamera);
+    document.getElementById('hangupBtn').addEventListener('click', hangup);
+    document.getElementById('localPip').addEventListener('click', () => swapToMain('local'));
+
+    // ── 加入房间 ──
+    async function joinRoom() {
+      currentRoom = document.getElementById('roomInput').value.trim();
+      if (!currentRoom) return;
+
+      setStatus('正在获取摄像头...');
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      document.getElementById('localPip').srcObject = localStream;
+
+      document.getElementById('joinScreen').style.display = 'none';
+      document.getElementById('callScreen').style.display = 'block';
+      setStatus('正在连接服务器...');
+
+      connection = new signalR.HubConnectionBuilder()
+        .withUrl('/hub', { transport: signalR.HttpTransportType.LongPolling })
+        .withAutomaticReconnect()
+        .build();
+
+      connection.onreconnected(async () => {
+        await connection.invoke('JoinRoom', currentRoom);
+      });
+
+      // 收到自己加入的确认，以及房间里已有成员列表
+      // 新加入者是 initiator，向每个已有成员发 offer
+      connection.on('Joined', async (room, existingIds) => {
+        const count = existingIds.length + 1;
+        setStatus(count === 1 ? '等待对方加入...' : `房间内 ${count} 人`);
+        for (const peerId of existingIds) {
+          await startPeerConnection(peerId, true);
+        }
+      });
+
+      connection.on('RoomFull', () => setStatus('房间已满（最多3人）'));
+
+      // 有新人加入，等他发 offer 过来
+      connection.on('UserJoined', async (newPeerId) => {
+        initPeerState(newPeerId, false);
+        updateStatusCount();
+      });
+
+      connection.on('ReceiveOffer', async (fromId, sdp) => {
+        if (!peers.has(fromId)) initPeerState(fromId, false);
+        const peer = peers.get(fromId);
+        await peer.pc.setRemoteDescription(JSON.parse(sdp));
+        await flushPeerCandidates(fromId);
+        const answer = await peer.pc.createAnswer();
+        await peer.pc.setLocalDescription(answer);
+        await connection.invoke('SendAnswer', fromId, JSON.stringify(answer));
+      });
+
+      connection.on('ReceiveAnswer', async (fromId, sdp) => {
+        const peer = peers.get(fromId);
+        if (!peer) return;
+        await peer.pc.setRemoteDescription(JSON.parse(sdp));
+        await flushPeerCandidates(fromId);
+      });
+
+      connection.on('ReceiveIceCandidate', async (fromId, candidate) => {
+        const peer = peers.get(fromId);
+        if (!peer) return;
+        if (peer.remoteDescSet) {
+          await peer.pc.addIceCandidate(JSON.parse(candidate));
+        } else {
+          peer.pendingCandidates.push(candidate);
+        }
+      });
+
+      connection.on('UserLeft', (peerId) => {
+        removePeer(peerId);
+        updateStatusCount();
+      });
+
+      await connection.start();
+      await connection.invoke('JoinRoom', currentRoom);
+    }
+
+    // ── Peer 管理 ──
+    function initPeerState(peerId, isInitiator) {
+      if (peers.has(peerId)) return;
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }
+          // Production: configure your own TURN server here. Never commit credentials.
+        ]
+      });
+
+      const state = { pc, pendingCandidates: [], remoteDescSet: false, isInitiator, stream: null };
+      peers.set(peerId, state);
+
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+      pc.onicecandidate = async ({ candidate }) => {
+        if (candidate) await connection.invoke('SendIceCandidate', peerId, JSON.stringify(candidate));
+      };
+
+      pc.ontrack = ({ streams }) => {
+        state.stream = streams[0];
+        onRemoteStream(peerId, streams[0]);
+        setBitrate(pc, 8000);
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          removePeer(peerId);
+          updateStatusCount();
+        }
+      };
+
+      return state;
+    }
+
+    async function startPeerConnection(peerId, isInitiator) {
+      initPeerState(peerId, isInitiator);
+      if (!isInitiator) return;
+      const peer = peers.get(peerId);
+      const offer = await peer.pc.createOffer();
+      await peer.pc.setLocalDescription(offer);
+      await connection.invoke('SendOffer', peerId, JSON.stringify(offer));
+    }
+
+    async function flushPeerCandidates(peerId) {
+      const peer = peers.get(peerId);
+      if (!peer) return;
+      peer.remoteDescSet = true;
+      for (const c of peer.pendingCandidates) {
+        await peer.pc.addIceCandidate(JSON.parse(c));
+      }
+      peer.pendingCandidates = [];
+    }
+
+    function removePeer(peerId) {
+      const peer = peers.get(peerId);
+      if (!peer) return;
+      peer.pc.close();
+      peers.delete(peerId);
+
+      // 如果这人在主画面，换一个人上来
+      if (mainPeerId === peerId) {
+        mainPeerId = null;
+        const next = [...peers.entries()].find(([, p]) => p.stream);
+        if (next) {
+          promoteToMain(next[0], next[1].stream);
+        } else {
+          document.getElementById('mainVideo').srcObject = null;
+          document.getElementById('placeholder').style.display = 'flex';
+          stopStats();
+        }
+      }
+
+      // 移除 PiP 元素
+      document.getElementById('pip-' + peerId)?.remove();
+    }
+
+    // ── 视频布局 ──
+    function onRemoteStream(peerId, stream) {
+      if (mainPeerId === null) {
+        promoteToMain(peerId, stream);
+      } else {
+        addPip(peerId, stream);
+      }
+      updateStatusCount();
+      startStats();
+    }
+
+    function promoteToMain(peerId, stream) {
+      document.getElementById('mainVideo').srcObject = stream;
+      document.getElementById('placeholder').style.display = 'none';
+      mainPeerId = peerId;
+      document.getElementById('pip-' + peerId)?.remove();
+    }
+
+    function addPip(peerId, stream) {
+      if (document.getElementById('pip-' + peerId)) return;
+      const video = document.createElement('video');
+      video.id = 'pip-' + peerId;
+      video.className = 'pip-item';
+      video.autoplay = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      video.addEventListener('click', () => swapToMain(peerId));
+      document.getElementById('pipContainer').insertBefore(
+        video,
+        document.getElementById('localPip')
+      );
+    }
+
+    function swapToMain(clickedId) {
+      if (clickedId === mainPeerId) return;
+
+      const mainVideo = document.getElementById('mainVideo');
+      const oldMainId = mainPeerId;
+      const oldMainStream = mainVideo.srcObject;
+
+      if (clickedId === 'local') {
+        mainVideo.srcObject = localStream;
+        mainPeerId = 'local';
+        // 把之前主画面的人放进 pip
+        if (oldMainId && oldMainId !== 'local') {
+          addPip(oldMainId, oldMainStream);
+        }
+        document.getElementById('localPip').srcObject = null;
+        document.getElementById('localPip').style.display = 'none';
+      } else {
+        const peer = peers.get(clickedId);
+        if (!peer?.stream) return;
+        mainVideo.srcObject = peer.stream;
+        mainPeerId = clickedId;
+        document.getElementById('pip-' + clickedId)?.remove();
+
+        if (oldMainId === 'local') {
+          document.getElementById('localPip').srcObject = localStream;
+          document.getElementById('localPip').style.display = 'block';
+        } else if (oldMainId) {
+          addPip(oldMainId, oldMainStream);
+        }
+      }
+    }
+
+    // ── 工具函数 ──
+    function updateStatusCount() {
+      const total = peers.size + 1;
+      const hasRemote = [...peers.values()].some(p => p.stream);
+      if (!hasRemote) {
+        setStatus('等待对方加入...');
+      } else {
+        setStatus(`房间内 ${total} 人`);
+      }
+    }
+
+    function setStatus(text) {
+      document.getElementById('callStatus').textContent = text;
+      document.getElementById('joinStatus').textContent = text;
+    }
+
+    function toggleMute() {
+      audioMuted = !audioMuted;
+      localStream.getAudioTracks().forEach(t => t.enabled = !audioMuted);
+      const btn = document.getElementById('muteBtn');
+      btn.textContent = audioMuted ? '🔇' : '🎤';
+      btn.className = 'ctrl-btn ' + (audioMuted ? 'off' : 'normal');
+    }
+
+    function toggleCamera() {
+      videoOff = !videoOff;
+      localStream.getVideoTracks().forEach(t => t.enabled = !videoOff);
+      const btn = document.getElementById('cameraBtn');
+      btn.textContent = videoOff ? '🚫' : '📷';
+      btn.className = 'ctrl-btn ' + (videoOff ? 'off' : 'normal');
+    }
+
+    async function flipCamera() {
+      if (!localStream) return;
+      facingMode = facingMode === 'user' ? 'environment' : 'user';
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
+        const newTrack = newStream.getVideoTracks()[0];
+
+        // 替换所有 PeerConnection 里的视频轨道（不用重新协商）
+        for (const [, peer] of peers) {
+          const sender = peer.pc.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) await sender.replaceTrack(newTrack);
+        }
+
+        // 替换本地 stream 里的旧轨道
+        localStream.getVideoTracks().forEach(t => t.stop());
+        localStream.getVideoTracks().forEach(t => localStream.removeTrack(t));
+        localStream.addTrack(newTrack);
+
+        // 刷新本地预览
+        const pip = document.getElementById('localPip');
+        pip.srcObject = null;
+        pip.srcObject = localStream;
+        if (mainPeerId === 'local') {
+          const mv = document.getElementById('mainVideo');
+          mv.srcObject = null;
+          mv.srcObject = localStream;
+        }
+      } catch {
+        facingMode = facingMode === 'user' ? 'environment' : 'user'; // 回滚
+      }
+    }
+
+    function hangup() {
+      for (const [, peer] of peers) peer.pc.close();
+      peers.clear();
+      if (connection) { connection.stop(); connection = null; }
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      stopStats();
+      mainPeerId = null;
+      audioMuted = false; videoOff = false;
+      document.getElementById('mainVideo').srcObject = null;
+      document.getElementById('placeholder').style.display = 'flex';
+      document.getElementById('placeholderText').textContent = '等待对方加入...';
+      document.getElementById('localPip').srcObject = null;
+      document.getElementById('localPip').style.display = 'block';
+      // 清除所有远端 pip
+      document.querySelectorAll('.pip-item:not(#localPip)').forEach(v => v.remove());
+      document.getElementById('muteBtn').textContent = '🎤';
+      document.getElementById('muteBtn').className = 'ctrl-btn normal';
+      document.getElementById('cameraBtn').textContent = '📷';
+      document.getElementById('cameraBtn').className = 'ctrl-btn normal';
+      document.getElementById('callScreen').style.display = 'none';
+      document.getElementById('joinScreen').style.display = 'flex';
+      setStatus('等待加入...');
+    }
+
+    async function setBitrate(pc, maxKbps) {
+      for (const sender of pc.getSenders()) {
+        if (sender.track?.kind !== 'video') continue;
+        const params = sender.getParameters();
+        if (!params.encodings?.length) params.encodings = [{}];
+        params.encodings[0].maxBitrate = maxKbps * 1000;
+        await sender.setParameters(params).catch(() => {});
+      }
+    }
+
+    function startStats() {
+      if (statsTimer) return;
+      statsTimer = setInterval(updateStats, 1000);
+    }
+
+    function stopStats() {
+      clearInterval(statsTimer); statsTimer = null;
+      lastBytes = 0; lastStatsTime = 0;
+      document.getElementById('fpsVal').textContent = '-- fps';
+      document.getElementById('bitrateVal').textContent = '-- kbps';
+      document.getElementById('ipVal').textContent = '--';
+    }
+
+    async function updateStats() {
+      // 只统计主画面对应的 peer
+      const peer = mainPeerId && mainPeerId !== 'local' ? peers.get(mainPeerId) : null;
+      if (!peer?.pc) return;
+      const stats = await peer.pc.getStats();
+      let fps = null, bytes = 0, ip = null;
+
+      stats.forEach(r => {
+        if (r.type === 'inbound-rtp' && r.kind === 'video') {
+          if (r.framesPerSecond != null) fps = Math.round(r.framesPerSecond);
+          bytes = r.bytesReceived || 0;
+        }
+        if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+          const remote = stats.get(r.remoteCandidateId);
+          if (remote) ip = (remote.address || remote.ip || '?') + ' · ' + (remote.candidateType === 'relay' ? 'relay' : 'p2p');
+        }
+      });
+
+      const now = Date.now();
+      if (lastStatsTime && bytes > lastBytes)
+        document.getElementById('bitrateVal').textContent = Math.round((bytes - lastBytes) * 8 / (now - lastStatsTime)) + ' kbps';
+      lastBytes = bytes; lastStatsTime = now;
+      if (fps != null) document.getElementById('fpsVal').textContent = fps + ' fps';
+      if (ip) document.getElementById('ipVal').textContent = ip;
+    }
+  </script>
+</body>
+</html>
